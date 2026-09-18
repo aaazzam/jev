@@ -1,0 +1,20 @@
+[project]
+name = "jev"
+version = "0.1.0"
+description = "Decorator that compiles Python function definitions into Jev (TypeSafe System One) queries"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "jinja2>=3.1.6",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "typesafe-sdk>=0.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# Single-module package: main.py and example.py are demos, not package contents.
+[tool.setuptools]
+py-modules = ["jev"]

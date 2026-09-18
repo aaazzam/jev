@@ -1,0 +1,7 @@
+{
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.14",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["jev.py", "main.py", "example.py"]
+}
