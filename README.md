@@ -1,10 +1,10 @@
 # jev
 
-`@jev` turns a Python function definition into a query against [Jev](https://typesafe.ai), TypeSafe's System One model. You declare the function (parameters, docstring, return annotation) and the decorator compiles it into a `state` + typed `questions` request. Calling the function sends the request and returns a validated instance of the return annotation.
+`@jev.fn` turns a Python function definition into a query against [Jev](https://typesafe.ai), TypeSafe's System One model. You declare the function (parameters, docstring, return annotation) and the decorator compiles it into a `state` + typed `questions` request. Calling the function sends the request and returns a validated instance of the return annotation.
 
 Jev generates no text. It answers typed questions about a state (yes/no probabilities, choices, scores) in one parallel call, with calibrated probabilities. That constraint drives the design: the return annotation must be a Pydantic model, and each of its fields maps onto one of Jev's three question types.
 
-A function signature is already a complete specification of a decision. The name says what to decide, the parameters say what to decide it from, and the return annotation says what shape the answer takes; the docstring supplies the judgment. `@jev` treats that specification as sufficient and lets Jev fill in the body. The spec is made of things you already write: a signature, a docstring, a Pydantic model. There is no prompt string to maintain, no JSON schema to keep in sync, no parsing layer between the call and the answer.
+A function signature is already a complete specification of a decision. The name says what to decide, the parameters say what to decide it from, and the return annotation says what shape the answer takes; the docstring supplies the judgment. `@jev.fn` treats that specification as sufficient and lets Jev fill in the body. The spec is made of things you already write: a signature, a docstring, a Pydantic model. There is no prompt string to maintain, no JSON schema to keep in sync, no parsing layer between the call and the answer.
 
 ## Install
 
@@ -23,14 +23,14 @@ TYPESAFE_API_KEY=...
 ```python
 from typing import Literal
 from pydantic import BaseModel, Field
-from jev import jev
+import jev
 
 class Triage(BaseModel):
     department: Literal["billing", "technical", "sales"]
     is_urgent: bool
     frustration: int = Field(ge=0, le=2)
 
-@jev
+@jev.fn
 def triage(ticket: str) -> Triage:
     """A customer support ticket:
 
@@ -76,7 +76,7 @@ The body always runs, and there are three useful things it can do:
 Building the state looks like this:
 
 ```python
-@jev
+@jev.fn
 def triage_batch(tickets: list[str]) -> BatchTriage:
     """Triage a batch of support tickets."""
     numbered = [f"[{i}] {t}" for i, t in enumerate(tickets)]
@@ -89,7 +89,7 @@ Framing like "Triage this batch" lives in the body now, in the open, rather than
 
 `fn.state(...)` is typed `value -> return-annotation`, so the body's `return` type-checks against the annotation.
 
-Async functions work identically (`await` the call; the body may also `await`). Configure per function with `@jev(model="jev-latest", client=...)`; the default client reads `TYPESAFE_API_KEY` and calls `jev-latest`. The bool threshold defaults to 0.5; tune it per function with `@jev(bool_threshold=0.7)` or globally with the `JEV_BOOL_THRESHOLD` environment variable.
+Async functions work identically (`await` the call; the body may also `await`). Configure per function with `@jev.fn(model="jev-latest", client=...)`; the default client reads `TYPESAFE_API_KEY` and calls `jev-latest`. The bool threshold defaults to 0.5; tune it per function with `@jev.fn(bool_threshold=0.7)` or globally with the `JEV_BOOL_THRESHOLD` environment variable.
 
 ## Batch with `.map`
 
@@ -100,14 +100,14 @@ triage.map(tickets)          # sync:  list[Triage]
 await atriage.map(tickets)   # async: list[Triage]
 ```
 
-## Class form: `JevModel`
+## Class form: `jev.BaseModel`
 
 For the common case of one blob of state in, one struct out, there is a class interface (the same field machinery, no docstring involved):
 
 ```python
-from jev import JevModel
+import jev
 
-class Triage(JevModel):
+class Triage(jev.BaseModel):
     department: Literal["billing", "technical", "sales"]
     is_urgent: bool
     frustration: int = Field(ge=0, le=2)
@@ -134,7 +134,7 @@ Or return a model from the body to short-circuit the call in tests.
 
 ## Type checking
 
-The decorated function has type `JevFn[P, R]` (or `AsyncJevFn[P, R]` for async), so call sites see the original parameter signature and the declared return model, and `fn.state` returns the same model. Bare `@jev` rejects a non-`BaseModel` return annotation statically, before any code runs. The package passes `pyright --strict` and `mypy --strict` with no casts and no ignore comments.
+The decorated function has type `JevFn[P, R]` (or `AsyncJevFn[P, R]` for async), so call sites see the original parameter signature and the declared return model, and `fn.state` returns the same model. Bare `@jev.fn` rejects a non-`BaseModel` return annotation statically, before any code runs. The package passes `pyright --strict` and `mypy --strict` with no casts and no ignore comments.
 
 See `example.py` for a runnable tour (`uv run python example.py`).
 

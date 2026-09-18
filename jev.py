@@ -1,4 +1,4 @@
-"""`@jev`: turn a Python function into a Jev (System One) structured-decision call.
+"""`@jev.fn`: turn a Python function into a Jev (System One) structured-decision call.
 
 The decorated function is never executed; it is the *specification* of a query:
 
@@ -35,8 +35,8 @@ The body always runs, and there are three useful things it can do:
 - ``return Model(...)``: construct the answer yourself and the API call is
   skipped entirely (a mock seam for tests).
 
-Works on sync and async functions, bare (``@jev``) or configured
-(``@jev(model=..., client=...)``). The client defaults to the
+Works on sync and async functions, bare (``@jev.fn``) or configured
+(``@jev.fn(model=..., client=...)``). The client defaults to the
 ``TYPESAFE_API_KEY`` environment variable and ``jev-latest``.
 """
 
@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, ParamSpec, Pr
 
 import annotated_types
 import jinja2
-from pydantic import BaseModel
+from pydantic import BaseModel as _BaseModel
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -64,12 +64,12 @@ if TYPE_CHECKING:
 
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score, TypeSafeClient
 
-__all__ = ["jev", "JevFn", "AsyncJevFn", "JevModel", "state_payload", "builder"]
+__all__ = ["fn", "JevFn", "AsyncJevFn", "BaseModel", "state_payload", "builder"]
 
 P = ParamSpec("P")
-R = TypeVar("R", bound=BaseModel)
+R = TypeVar("R", bound=_BaseModel)
 class JevFn(Protocol[P, R]):
-    """A sync ``@jev``-decorated function: call it to query Jev.
+    """A sync ``@jev.fn``-decorated function: call it to query Jev.
 
     ``state`` builds the state marker a body returns via ``return fn.state(...)``.
     ``map(items)`` applies the function to each item in a single batched call.
@@ -81,7 +81,7 @@ class JevFn(Protocol[P, R]):
 
 
 class AsyncJevFn(Protocol[P, R]):
-    """An async ``@jev``-decorated function: await it to query Jev."""
+    """An async ``@jev.fn``-decorated function: await it to query Jev."""
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]: ...
     def state(self, value: JSONContent | None = None) -> R: ...
@@ -89,7 +89,7 @@ class AsyncJevFn(Protocol[P, R]):
 
 
 class _JevDecorator(Protocol):
-    """The configured ``@jev(...)`` form: preserves params, swaps the return."""
+    """The configured ``@jev.fn(...)`` form: preserves params, swaps the return."""
 
     @overload
     def __call__(self, fn: Callable[P, R], /) -> JevFn[P, R]: ...
@@ -103,7 +103,7 @@ _ABSENT: Any = object()
 
 
 class _StateBuilder(Generic[R]):
-    """The ``state`` method on a ``@jev`` wrapper; builds the marker it unwraps."""
+    """The ``state`` method on a ``@jev.fn`` wrapper; builds the marker it unwraps."""
 
     def __init__(self, model: type[R]) -> None:
         self._model = model
@@ -111,7 +111,7 @@ class _StateBuilder(Generic[R]):
     def __call__(self, value: JSONContent | None = None) -> R:
         # model_construct() is typed `-> Self`, so the marker is a genuine `R`
         # as far as any type checker is concerned; the payload rides along in a
-        # dunder attribute and is unwrapped by the @jev wrapper before the
+        # dunder attribute and is unwrapped by the @jev.fn wrapper before the
         # instance can be observed. A missing payload (None is never a valid
         # state) means "body-less": the rendered docstring is the state.
         marker = self._model.model_construct()
@@ -119,7 +119,7 @@ class _StateBuilder(Generic[R]):
         return marker
 
 
-def state_payload(marker: BaseModel) -> JSONContent | None:
+def state_payload(marker: _BaseModel) -> JSONContent | None:
     """The value carried by a ``fn.state(...)`` marker.
 
     Useful for unit-testing state builders without making an API call.
@@ -138,7 +138,7 @@ _builder_registry: weakref.WeakKeyDictionary[Callable[..., Any], Callable[..., A
 
 
 def builder(fn: Callable[P, Any]) -> Callable[P, Any]:
-    """The original function behind a ``@jev`` wrapper: the pure state-builder.
+    """The original function behind a ``@jev.fn`` wrapper: the pure state-builder.
 
     ``builder(fn)(*args, **kwargs)`` runs the body without touching the API,
     so state construction can be unit-tested directly.
@@ -150,7 +150,7 @@ _MAX_CHOICE_OPTIONS = 255
 _MAX_SCORE_LEVELS = 256
 
 # Noul -> bool coercion: p(yes) >= threshold. Overridable per function with
-# @jev(bool_threshold=...) or globally with the env var.
+# @jev.fn(bool_threshold=...) or globally with the env var.
 _DEFAULT_BOOL_THRESHOLD = 0.5
 _BOOL_THRESHOLD_ENV = "JEV_BOOL_THRESHOLD"
 
@@ -163,45 +163,45 @@ _jinja_env = jinja2.Environment(undefined=jinja2.StrictUndefined, autoescape=Fal
 
 
 @overload
-def jev(fn: Callable[P, R], /) -> JevFn[P, R]:
-    """Bare `@jev` on a sync function."""
+def fn(func: Callable[P, R], /) -> JevFn[P, R]:
+    """Bare `@jev.fn` on a sync function."""
     ...
 
 
 @overload
-def jev(fn: Callable[P, Awaitable[R]], /) -> AsyncJevFn[P, R]:
-    """Bare `@jev` on an async function."""
+def fn(func: Callable[P, Awaitable[R]], /) -> AsyncJevFn[P, R]:
+    """Bare `@jev.fn` on an async function."""
     ...
 
 
 @overload
-def jev(
-    fn: None = None,
+def fn(
+    func: None = None,
     /,
     *,
     model: str | None = None,
     client: TypeSafeClient | AsyncTypeSafeClient | None = None,
     bool_threshold: float | None = None,
 ) -> _JevDecorator:
-    """Configured `@jev(...)`; preserves params, adds ``.state``."""
+    """Configured `@jev.fn(...)`; preserves params, adds ``.state``."""
     ...
 
 
-def jev(
-    fn: Callable[..., Any] | None = None,
+def fn(
+    func: Callable[..., Any] | None = None,
     /,
     *,
     model: str | None = None,
     client: TypeSafeClient | AsyncTypeSafeClient | None = None,
     bool_threshold: float | None = None,
 ) -> Any:
-    """Decorate `fn` so calling it queries Jev instead of running its body."""
+    """Decorate `func` so calling it queries Jev instead of running its body."""
 
-    def decorator(func: Callable[..., Any]) -> Any:
-        return _decorate(func, model=model, client=client, bool_threshold=bool_threshold)
+    def decorator(f: Callable[..., Any]) -> Any:
+        return _decorate(f, model=model, client=client, bool_threshold=bool_threshold)
 
-    if fn is not None:
-        return decorator(fn)
+    if func is not None:
+        return decorator(func)
     return decorator
 
 
@@ -251,7 +251,7 @@ def _decorate(
     if inspect.iscoroutinefunction(func):
         if client is not None and not isinstance(client, AsyncTypeSafeClient):
             raise TypeError(
-                f"@jev: {func.__qualname__} is async and needs an AsyncTypeSafeClient, "
+                f"@jev.fn: {func.__qualname__} is async and needs an AsyncTypeSafeClient, "
                 f"got {type(client).__name__}"
             )
 
@@ -288,7 +288,7 @@ def _decorate(
 
     if client is not None and not isinstance(client, TypeSafeClient):
         raise TypeError(
-            f"@jev: {func.__qualname__} is sync and needs a TypeSafeClient, "
+            f"@jev.fn: {func.__qualname__} is sync and needs a TypeSafeClient, "
             f"got {type(client).__name__}"
         )
 
@@ -322,13 +322,13 @@ def _decorate(
     return sync_wrapper
 
 
-def _return_model_of(func: Callable[..., Any]) -> type[BaseModel]:
+def _return_model_of(func: Callable[..., Any]) -> type[_BaseModel]:
     annotation = typing.get_type_hints(func).get("return")
     if annotation is None:
-        raise TypeError(f"@jev: {func.__qualname__} must declare a return annotation")
-    if not (isinstance(annotation, type) and issubclass(annotation, BaseModel)):
+        raise TypeError(f"@jev.fn: {func.__qualname__} must declare a return annotation")
+    if not (isinstance(annotation, type) and issubclass(annotation, _BaseModel)):
         raise TypeError(
-            f"@jev: {func.__qualname__} must return a pydantic BaseModel subclass, "
+            f"@jev.fn: {func.__qualname__} must return a pydantic BaseModel subclass, "
             f"got {annotation!r}"
         )
     return annotation
@@ -342,12 +342,12 @@ def _compile_template(func: Callable[..., Any]) -> jinja2.Template | None:
         return _jinja_env.from_string(doc)
     except jinja2.TemplateSyntaxError as exc:
         raise TypeError(
-            f"@jev: the docstring of {func.__qualname__} is not a valid Jinja2 template: {exc}"
+            f"@jev.fn: the docstring of {func.__qualname__} is not a valid Jinja2 template: {exc}"
         ) from exc
 
 
 def _compile_questions(
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     bool_threshold: float | None,
 ) -> tuple[dict[str, Noul | Choice | Score], dict[str, _Extractor]]:
     questions: dict[str, Noul | Choice | Score] = {}
@@ -360,7 +360,7 @@ def _compile_questions(
 
 
 def _compile_field(
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     name: str,
     field: FieldInfo,
     bool_threshold: float | None,
@@ -388,7 +388,7 @@ def _compile_field(
         return _compile_score(return_model, name, field, is_integer=False, instructions=instructions)
 
     raise TypeError(
-        f"@jev: {return_model.__name__}.{name} has unsupported type {annotation!r}. "
+        f"@jev.fn: {return_model.__name__}.{name} has unsupported type {annotation!r}. "
         "Jev cannot generate strings, so fields must be bool, Literal[...], Enum, "
         "or int/float constrained with Field(ge=..., le=...)."
     )
@@ -396,7 +396,7 @@ def _compile_field(
 
 def _validate_bool_threshold(value: float, source: str) -> float:
     if not 0.0 <= value <= 1.0:
-        raise ValueError(f"@jev: bool threshold from {source} must be in [0, 1], got {value}")
+        raise ValueError(f"@jev.fn: bool threshold from {source} must be in [0, 1], got {value}")
     return value
 
 
@@ -411,7 +411,7 @@ def _bool_threshold(explicit: float | None) -> float:
         return _validate_bool_threshold(float(raw), _BOOL_THRESHOLD_ENV)
     except ValueError:
         raise ValueError(
-            f"@jev: {_BOOL_THRESHOLD_ENV} must be a float in [0, 1], got {raw!r}"
+            f"@jev.fn: {_BOOL_THRESHOLD_ENV} must be a float in [0, 1], got {raw!r}"
         ) from None
 
 
@@ -421,7 +421,7 @@ def _compile_noul(
     # An explicit threshold is validated at decoration time; the env var is
     # resolved per call so tests and workers can tune it without re-importing.
     if bool_threshold is not None:
-        _validate_bool_threshold(bool_threshold, "@jev(bool_threshold=...)")
+        _validate_bool_threshold(bool_threshold, "@jev.fn(bool_threshold=...)")
 
     def extract(r: _AnswersView) -> bool:
         return r.nouls[name].noul >= _bool_threshold(bool_threshold)
@@ -458,7 +458,7 @@ def _label_map(name: str, pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     for label, value in pairs:
         if label in label_to_value:
             raise TypeError(
-                f"@jev: field {name!r} has options that collide when stringified: {label!r}"
+                f"@jev.fn: field {name!r} has options that collide when stringified: {label!r}"
             )
         label_to_value[label] = value
     return label_to_value
@@ -470,7 +470,7 @@ def _compile_choice(
     labels = list(label_to_value)
     if len(labels) > _MAX_CHOICE_OPTIONS:
         raise TypeError(
-            f"@jev: field {name!r} has {len(labels)} options; "
+            f"@jev.fn: field {name!r} has {len(labels)} options; "
             f"Jev supports at most {_MAX_CHOICE_OPTIONS} per choice"
         )
     question = Choice(instructions=instructions, criteria=dict.fromkeys(labels))
@@ -478,7 +478,7 @@ def _compile_choice(
 
 
 def _compile_score(
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     name: str,
     field: FieldInfo,
     *,
@@ -494,7 +494,7 @@ def _compile_score(
             hi = constraint.le
     if lo is None or hi is None:
         raise TypeError(
-            f"@jev: {return_model.__name__}.{name} is a score; "
+            f"@jev.fn: {return_model.__name__}.{name} is a score; "
             "constrain it with Field(ge=..., le=...)"
         )
 
@@ -502,7 +502,7 @@ def _compile_score(
     raw_levels: Any = extra.get("levels")
     if raw_levels is not None and not _is_list(raw_levels):
         raise TypeError(
-            f"@jev: {return_model.__name__}.{name}: "
+            f"@jev.fn: {return_model.__name__}.{name}: "
             "json_schema_extra['levels'] must be a list of labels"
         )
     custom_levels: list[Any] | None = raw_levels
@@ -515,7 +515,7 @@ def _compile_score(
             levels = [str(v) for v in range(lo_i, hi_i + 1)]
         if len(levels) != hi_i - lo_i + 1:
             raise TypeError(
-                f"@jev: {return_model.__name__}.{name}: custom levels must have exactly "
+                f"@jev.fn: {return_model.__name__}.{name}: custom levels must have exactly "
                 f"ge..le entries ({hi_i - lo_i + 1}), got {len(levels)}"
             )
 
@@ -531,7 +531,7 @@ def _compile_score(
             levels = [str(lo_f), str(hi_f)]
         if len(levels) < 2:
             raise TypeError(
-                f"@jev: {return_model.__name__}.{name}: a float score needs at least 2 levels"
+                f"@jev.fn: {return_model.__name__}.{name}: a float score needs at least 2 levels"
             )
         n_levels = len(levels)
 
@@ -543,7 +543,7 @@ def _compile_score(
 
     if len(levels) > _MAX_SCORE_LEVELS:
         raise TypeError(
-            f"@jev: {return_model.__name__}.{name} has {len(levels)} levels; "
+            f"@jev.fn: {return_model.__name__}.{name} has {len(levels)} levels; "
             f"Jev supports at most {_MAX_SCORE_LEVELS} per score"
         )
     return Score(instructions=instructions, criteria=levels), extractor
@@ -567,7 +567,7 @@ def _render_framing(
     try:
         return template.render(**bound.arguments)
     except jinja2.UndefinedError as exc:
-        raise TypeError(f"@jev: docstring template references an unknown variable: {exc}") from exc
+        raise TypeError(f"@jev.fn: docstring template references an unknown variable: {exc}") from exc
 
 
 def _body_less_state(
@@ -590,13 +590,13 @@ def _body_less_state(
 
 def _resolve_body(
     func: Callable[..., Any],
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     template: jinja2.Template | None,
     signature: inspect.Signature,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     body_result: Any,
-) -> tuple[BaseModel | None, Any]:
+) -> tuple[_BaseModel | None, Any]:
     """Interpret the evaluated body's result.
 
     Returns ``(override, None)`` when the body answered directly (skip the API
@@ -606,7 +606,7 @@ def _resolve_body(
     if value is not _ABSENT:
         if type(body_result) is not return_model:
             raise TypeError(
-                f"@jev: {func.__qualname__} returned a state marker built for "
+                f"@jev.fn: {func.__qualname__} returned a state marker built for "
                 f"{type(body_result).__name__}, but its return annotation is "
                 f"{return_model.__name__}; use {func.__qualname__}.state(...)"
             )
@@ -623,7 +623,7 @@ def _resolve_body(
 
     if body_result is not None:
         raise TypeError(
-            f"@jev: {func.__qualname__}'s body must return "
+            f"@jev.fn: {func.__qualname__}'s body must return "
             f"{func.__qualname__}.state(...) or nothing, "
             f"got {type(body_result).__name__}"
         )
@@ -667,7 +667,7 @@ def _bind_single(
         bound = signature.bind(item)
     except TypeError as exc:
         raise TypeError(
-            f"@jev: {func.__qualname__}.map(items) needs each item to be the "
+            f"@jev.fn: {func.__qualname__}.map(items) needs each item to be the "
             f"function's only positional argument: {exc}"
         ) from exc
     bound.apply_defaults()
@@ -677,13 +677,13 @@ def _bind_single(
 # overrides by index, states by index, batched questions, and the state
 # array (None in slots answered directly, so indices hold).
 _MapPlan = tuple[
-    dict[int, BaseModel], dict[int, Any], dict[str, Noul | Choice | Score], list[Any]
+    dict[int, _BaseModel], dict[int, Any], dict[str, Noul | Choice | Score], list[Any]
 ]
 
 
 def _map_resolve(
     func: Callable[..., Any],
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     template: jinja2.Template | None,
     signature: inspect.Signature,
     questions: dict[str, Noul | Choice | Score],
@@ -692,7 +692,7 @@ def _map_resolve(
 ) -> _MapPlan:
     """Interpret each item's body result through the same machinery as a
     direct call, then batch the questions of the items that need Jev."""
-    overrides: dict[int, BaseModel] = {}
+    overrides: dict[int, _BaseModel] = {}
     states: dict[int, Any] = {}
     for i, ((args, kwargs), body_result) in enumerate(zip(bound, body_results, strict=True)):
         override, state = _resolve_body(
@@ -711,7 +711,7 @@ def _map_resolve(
 
 def _map_prepare(
     func: Callable[..., Any],
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     template: jinja2.Template | None,
     signature: inspect.Signature,
     questions: dict[str, Noul | Choice | Score],
@@ -727,7 +727,7 @@ def _map_prepare(
 
 async def _map_prepare_async(
     func: Callable[..., Any],
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     template: jinja2.Template | None,
     signature: inspect.Signature,
     questions: dict[str, Noul | Choice | Score],
@@ -741,10 +741,10 @@ async def _map_prepare_async(
 
 
 def _map_finish(
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     extractors: dict[str, _Extractor],
     response: SystemOneResponse | None,
-    overrides: dict[int, BaseModel],
+    overrides: dict[int, _BaseModel],
     states: dict[int, Any],
     n: int,
 ) -> list[Any]:
@@ -753,7 +753,7 @@ def _map_finish(
         results[i] = override
     if states:
         if response is None:
-            raise TypeError("@jev: internal error: batched answers missing")
+            raise TypeError("@jev.fn: internal error: batched answers missing")
         for i in states:
             results[i] = return_model(**_extract_values(extractors, _AnswersView.for_item(response, i)))
     return results
@@ -767,10 +767,10 @@ def _extract_values(
 
 
 def _materialize(
-    return_model: type[BaseModel],
+    return_model: type[_BaseModel],
     extractors: dict[str, _Extractor],
     response: SystemOneResponse,
-) -> BaseModel:
+) -> _BaseModel:
     return return_model(**_extract_values(extractors, _AnswersView.whole(response)))
 
 
@@ -803,21 +803,21 @@ def _default_async_client() -> AsyncTypeSafeClient:
 
 
 # ---------------------------------------------------------------------------
-# JevModel: construct a model instance straight from a state
+# BaseModel: construct a model instance straight from a state
 # ---------------------------------------------------------------------------
 
 
-class JevModel(BaseModel):
+class BaseModel(_BaseModel):
     """A pydantic model whose fields are Jev questions.
 
     ``Model.decide(state)`` queries Jev and fills the fields from the answers;
     the normal pydantic constructor validates locally and skips the API (the
-    mock seam). Fields follow the same rules as ``@jev`` return models: bool,
+    mock seam). Fields follow the same rules as ``@jev.fn`` return models: bool,
     Literal[...], Enum, or int/float with Field(ge=..., le=...). Field
     compilation happens at class definition, so an unsupported field type
     raises TypeError at import::
 
-        class Triage(JevModel):
+        class Triage(jev.BaseModel):
             department: Literal["billing", "technical", "sales"]
             is_urgent: bool
 

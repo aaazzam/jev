@@ -4,7 +4,7 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from jev import jev
+import jev
 
 _ = load_dotenv()
 
@@ -30,7 +30,7 @@ class Triage(BaseModel):
     )
 
 
-@jev
+@jev.fn
 def triage(ticket: str) -> Triage:
     """A customer support ticket:
 
@@ -39,7 +39,7 @@ def triage(ticket: str) -> Triage:
     return triage.state()
 
 
-@jev
+@jev.fn
 async def atriage(ticket: str) -> Triage:
     """A customer support ticket:
 

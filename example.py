@@ -1,4 +1,4 @@
-"""A tour of the @jev decorator against the live Jev API.
+"""A tour of the @jev.fn decorator against the live Jev API.
 
 Run with:  uv run python example.py
 """
@@ -11,7 +11,8 @@ from typing import Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from jev import JevModel, builder, jev, state_payload
+import jev
+from jev import builder, state_payload
 
 _ = load_dotenv()
 
@@ -40,7 +41,7 @@ class ReviewVerdict(BaseModel):
     )
 
 
-@jev
+@jev.fn
 def judge_review(review: str, product: str) -> ReviewVerdict:
     """A customer review of {{ product }}:
 
@@ -69,7 +70,7 @@ class DiffReport(BaseModel):
     )
 
 
-@jev
+@jev.fn
 def review_diff(diff: str) -> DiffReport:
     """A pull request diff:
 
@@ -89,13 +90,13 @@ class Ticket(BaseModel):
     frustration: int = Field(ge=0, le=2)
 
 
-@jev
+@jev.fn
 async def aclassify_ticket(ticket: str) -> Ticket:
     """A support ticket: {{ ticket }}"""
     return aclassify_ticket.state()
 
 
-@jev
+@jev.fn
 def classify_ticket(ticket: str) -> Ticket:
     """A support ticket: {{ ticket }}"""
     return classify_ticket.state()
@@ -110,7 +111,7 @@ class Guardrail(BaseModel):
     )
 
 
-@jev(model="jev-latest")
+@jev.fn(model="jev-latest")
 def is_jailbreak(prompt: str) -> Guardrail:
     """A user prompt sent to an LLM app: {{ prompt }}"""
     return is_jailbreak.state()
@@ -168,7 +169,7 @@ class BatchTriage(BaseModel):
     )
 
 
-@jev
+@jev.fn
 def triage_batch(tickets: list[str]) -> BatchTriage:
     """Triage a batch of support tickets."""  # documentation; state built below
     # The body is real Python: loops, conditionals, f-strings, whatever.
@@ -179,7 +180,7 @@ def triage_batch(tickets: list[str]) -> BatchTriage:
     )
 
 
-@jev
+@jev.fn
 def cached_answer(question: str) -> BatchTriage:
     """Answer from the cache; never touches the API."""
     if question == "cached":
@@ -207,10 +208,10 @@ def body_eval_demo() -> None:
     print("short-circuit:  ", cached_answer("cached"))
 
 
-# --- 6. JevModel: the constructor is the coercion -----------------------------
+# --- 6. jev.BaseModel: the constructor is the coercion ------------------------
 
 
-class TicketVerdict(JevModel):
+class TicketVerdict(jev.BaseModel):
     """A support ticket verdict."""
 
     department: Literal["billing", "technical", "sales"] = Field(
@@ -223,15 +224,15 @@ class TicketVerdict(JevModel):
 def model_demo() -> None:
     # Coercing a state queries Jev:
     verdict = TicketVerdict.decide("My invoice is wrong AGAIN. Third time this year!!")
-    print("\nJevModel decide:", verdict)
+    print("\njev.BaseModel decide:", verdict)
 
     # Constructing from field values validates locally and skips the API:
     manual = TicketVerdict(department="billing", is_urgent=False, frustration=0)
-    print("JevModel manual:", manual)
+    print("jev.BaseModel manual:", manual)
 
     # Async form:
     async_verdict = asyncio.run(TicketVerdict.adecide("How do I export my data?"))
-    print("JevModel async: ", async_verdict)
+    print("jev.BaseModel async: ", async_verdict)
 
 
 # --- 7. map: many items, one call ----------------------------------------------
