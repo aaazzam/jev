@@ -38,6 +38,11 @@ The body always runs, and there are three useful things it can do:
 Works on sync and async functions, bare (``@jev.fn``) or configured
 (``@jev.fn(model=..., client=...)``). The client defaults to the
 ``TYPESAFE_API_KEY`` environment variable and ``jev-latest``.
+
+No decorator needed for one blob of state in, one struct out:
+``decide(state, Model)`` / ``adecide(state, Model)`` work on any plain
+pydantic ``BaseModel``; subclassing ``jev.BaseModel`` adds the ``.decide``
+classmethod and compiles the questions once, at class definition.
 """
 
 from __future__ import annotations
@@ -64,7 +69,7 @@ if TYPE_CHECKING:
 
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Noul, Score, TypeSafeClient
 
-__all__ = ["fn", "JevFn", "AsyncJevFn", "BaseModel", "state_payload", "builder"]
+__all__ = ["fn", "JevFn", "AsyncJevFn", "BaseModel", "decide", "adecide", "state_payload", "builder"]
 
 P = ParamSpec("P")
 R = TypeVar("R", bound=_BaseModel)
@@ -853,19 +858,75 @@ class BaseModel(_BaseModel):
     @classmethod
     def decide(cls, state: JSONContent) -> Self:
         """Decide the fields about a state by querying Jev."""
-        if not cls.__jev_questions__:
-            raise TypeError(f"{cls.__name__} declares no question fields")
-        response = _default_sync_client().system_one(
-            state=state, questions=cls.__jev_questions__, model=cls.__jev_model__
-        )
-        return cls(**_extract_values(cls.__jev_extractors__, _AnswersView.whole(response)))
+        return decide(state, cls)
 
     @classmethod
     async def adecide(cls, state: JSONContent) -> Self:
         """The async form of ``decide``."""
-        if not cls.__jev_questions__:
-            raise TypeError(f"{cls.__name__} declares no question fields")
-        response = await _default_async_client().system_one(
-            state=state, questions=cls.__jev_questions__, model=cls.__jev_model__
-        )
-        return cls(**_extract_values(cls.__jev_extractors__, _AnswersView.whole(response)))
+        return await adecide(state, cls)
+
+
+# ---------------------------------------------------------------------------
+# decide / adecide: the class form without the subclass
+# ---------------------------------------------------------------------------
+
+
+def _decide_plan(
+    cls: Any,
+    model: str | None,
+    bool_threshold: float | None,
+) -> tuple[dict[str, Noul | Choice | Score], dict[str, _Extractor], str | None]:
+    if not (isinstance(cls, type) and issubclass(cls, _BaseModel)):
+        raise TypeError(f"jev.decide: expected a pydantic BaseModel subclass, got {cls!r}")
+    if bool_threshold is not None:
+        # An explicit threshold needs fresh extractors, even for jev.BaseModel.
+        _validate_bool_threshold(bool_threshold, "jev.decide(bool_threshold=...)")
+        questions, extractors = _compile_questions(cls, bool_threshold)
+    elif issubclass(cls, BaseModel):
+        # A jev.BaseModel subclass: reuse the questions compiled at class
+        # definition and its pinned model/threshold as defaults.
+        questions, extractors = cls.__jev_questions__, cls.__jev_extractors__
+    else:
+        questions, extractors = _compile_questions(cls, None)
+    if not questions:
+        raise TypeError(f"jev.decide: {cls.__name__} declares no question fields")
+    if model is None:
+        model = getattr(cls, "__jev_model__", None)
+    return questions, extractors, model
+
+
+def decide(
+    state: JSONContent,
+    cls: type[R],
+    *,
+    model: str | None = None,
+    bool_threshold: float | None = None,
+) -> R:
+    """Decide the fields of ``cls`` about ``state`` by querying Jev.
+
+    ``cls`` is any pydantic ``BaseModel`` whose fields follow the usual rules
+    (bool, ``Literal[...]``, ``Enum``, or int/float with ``Field(ge=..., le=...)``);
+    no subclass or decorator required. ``model`` pins the Jev model and
+    ``bool_threshold`` overrides the Noul -> bool threshold; on a
+    ``jev.BaseModel`` subclass they default to the class attributes and the
+    questions compiled at class definition are reused (plain models compile
+    per call, so prefer the class form in hot loops).
+    """
+    questions, extractors, model = _decide_plan(cls, model, bool_threshold)
+    response = _default_sync_client().system_one(state=state, questions=questions, model=model)
+    return cls(**_extract_values(extractors, _AnswersView.whole(response)))
+
+
+async def adecide(
+    state: JSONContent,
+    cls: type[R],
+    *,
+    model: str | None = None,
+    bool_threshold: float | None = None,
+) -> R:
+    """The async form of ``decide``."""
+    questions, extractors, model = _decide_plan(cls, model, bool_threshold)
+    response = await _default_async_client().system_one(
+        state=state, questions=questions, model=model
+    )
+    return cls(**_extract_values(extractors, _AnswersView.whole(response)))

@@ -121,6 +121,27 @@ Triage(department="billing", is_urgent=False, frustration=0)  # plain constructo
 
 Fields compile at class definition (unsupported types raise at import). Class attributes `__jev_model__` and `__jev_bool_threshold__` pin the model and threshold per class. Deciding is a classmethod rather than a constructor overload because pydantic's `dataclass_transform` synthesizes a field-only `__init__` for subclasses in both mypy and pyright; the classmethod keeps the call typed as `-> Self` in both.
 
+## Function form: `jev.decide`
+
+The same decision on a plain `BaseModel` — no subclass, no decorator:
+
+```python
+from pydantic import BaseModel
+import jev
+
+class Triage(BaseModel):
+    department: Literal["billing", "technical", "sales"]
+    is_urgent: bool
+    frustration: int = Field(ge=0, le=2)
+
+jev.decide("I was charged twice. Fix this NOW.", Triage)
+# Triage(department='billing', is_urgent=True, frustration=2)
+
+await jev.adecide("...", Triage)  # async form
+```
+
+Keyword arguments `model=` and `bool_threshold=` mirror the class attributes. Handed a `jev.BaseModel` subclass, `jev.decide` falls back to `__jev_model__` / `__jev_bool_threshold__` and reuses the questions compiled at class definition; plain models compile per call, so prefer the class form in hot loops.
+
 ## Testing
 
 ```python

@@ -234,6 +234,10 @@ def model_demo() -> None:
     async_verdict = asyncio.run(TicketVerdict.adecide("How do I export my data?"))
     print("jev.BaseModel async: ", async_verdict)
 
+    # No subclass needed: jev.decide works on the plain Ticket model from §3:
+    plain = jev.decide("Your app deleted ALL my data. Lawyer up.", Ticket)
+    print("jev.decide (plain):  ", plain)
+
 
 # --- 7. map: many items, one call ----------------------------------------------
 
